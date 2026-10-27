@@ -21,10 +21,10 @@ Todos los scripts:
 
 ```bash
 ./scripts/build-deb.sh
-# dist/deepseek-harness_0.1.0_amd64.deb
+# dist/deepseek-harness_0.2.0_amd64.deb
 
-dpkg-deb --info dist/deepseek-harness_0.1.0_amd64.deb
-dpkg-deb -c   dist/deepseek-harness_0.1.0_amd64.deb
+dpkg-deb --info dist/deepseek-harness_0.2.0_amd64.deb
+dpkg-deb -c   dist/deepseek-harness_0.2.0_amd64.deb
 ```
 
 - Layout: `/opt/deepseek-harness/{bin,lib}`, symlink en `/usr/bin`.
@@ -38,7 +38,7 @@ dpkg-deb -c   dist/deepseek-harness_0.1.0_amd64.deb
 ```bash
 sudo apt install rpm        # en Mint/Ubuntu
 ./scripts/build-rpm.sh
-# dist/deepseek-harness-0.1.0-1.x86_64.rpm
+# dist/deepseek-harness-0.2.0-1.x86_64.rpm
 ```
 
 - `AutoReqProv: no` porque el runtime Node va embebido.
@@ -72,8 +72,8 @@ sudo apt install nsis zip
 Genera:
 
 ```text
-dist/deepseek-harness-0.1.0-win-x64.zip        # portable
-dist/deepseek-harness-0.1.0-win-x64-setup.exe  # instalador NSIS
+dist/deepseek-harness-0.2.0-win-x64.zip        # portable
+dist/deepseek-harness-0.2.0-win-x64-setup.exe  # instalador NSIS
 ```
 
 - El ZIP incluye `node.exe` (verificado), `app/`, el lanzador `.cmd` y `LICENSE`.

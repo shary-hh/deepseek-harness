@@ -61,7 +61,7 @@ Compila el `.deb` con `scripts/build-deb.sh` y lo instala.
 
 ```bash
 # Verifica siempre el checksum antes de instalar
-./install.sh --version 0.1.0 --sha256 <hash-del-release>
+./install.sh --version 0.2.0 --sha256 <hash-del-release>
 ```
 
 ### Desinstalar
@@ -83,6 +83,51 @@ Tu configuración personal (`~/.config/deepseek-harness`) **no se borra**.
 ```
 
 Guía detallada: [`docs/INSTALL-LINUX-MINT.md`](docs/INSTALL-LINUX-MINT.md).
+
+---
+
+## Uso de la CLI
+
+La clave se lee **solo** del entorno o de un archivo; nunca se escribe en la
+configuración ni se imprime.
+
+```bash
+export DEEPSEEK_API_KEY="tu-clave"       # o DEEPSEEK_API_KEY_FILE=~/.secrets/deepseek
+# opcional: export DEEPSEEK_API_KEY_FILE="$HOME/.secrets/deepseek" && chmod 600 ...
+```
+
+Comandos:
+
+```bash
+deepseek-harness chat "Explica qué es un AppImage"
+echo "resume este texto" | deepseek-harness chat
+deepseek-harness chat --model deepseek-reasoner "razona este problema"
+deepseek-harness chat --no-stream --json "respuesta cruda"
+deepseek-harness models
+deepseek-harness doctor --ping
+deepseek-harness config init          # crea ~/.config/deepseek-harness/config.json (0600)
+deepseek-harness config set model deepseek-reasoner
+```
+
+| Opción de `chat` | Efecto |
+|---|---|
+| `--model <id>` | Modelo (`deepseek-chat`, `deepseek-reasoner`) |
+| `--system <texto>` | Prompt de sistema |
+| `--temperature <0..2>` | Creatividad |
+| `--max-tokens <n>` | Límite de respuesta |
+| `--timeout <ms>` | Tiempo máximo |
+| `--stream` / `--no-stream` | Streaming explícito |
+| `--json` | JSON completo de la API |
+
+Detalles de seguridad:
+
+- Streaming SSE con `fetch` nativo, sin dependencias.
+- La configuración se crea con permisos `0600` y **rechaza** campos como
+  `apiKey`, `token` o `secret`.
+- `doctor` muestra solo la longitud de la clave, nunca el valor.
+- HTTP solo se permite en loopback (para las pruebas); el resto exige HTTPS.
+
+> `v0.1.0` fue el esqueleto de empaquetado. La CLI funcional llega en `v0.2.0`.
 
 ---
 
@@ -208,8 +253,8 @@ git remote add origin git@github.com:TU-USUARIO/deepseek-harness.git
 git push -u origin main
 
 # 3. Publica una versión (dispara el workflow de release)
-git tag -a v0.1.0 -m "deepseek-harness 0.1.0"
-git push origin v0.1.0
+git tag -a v0.2.0 -m "deepseek-harness 0.2.0"
+git push origin v0.2.0
 ```
 
 > Si prefieres HTTPS: `git remote add origin https://github.com/TU-USUARIO/deepseek-harness.git`.

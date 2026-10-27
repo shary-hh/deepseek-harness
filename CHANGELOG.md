@@ -4,6 +4,24 @@ Todas las cambios relevantes se documentan aquí. Formato basado en
 [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y
 [SemVer](https://semver.org/lang/es/).
 
+## [0.2.0] - 2026-10-27
+
+### Añadido
+
+- CLI funcional para la API de DeepSeek: `chat` (con streaming SSE),
+  `models`, `doctor` y `config`.
+- Lectura de la clave desde `DEEPSEEK_API_KEY` o `DEEPSEEK_API_KEY_FILE`
+  (permisos 0600), sin escribirla nunca en disco.
+- Configuración en `~/.config/deepseek-harness/config.json` con modo 0600 y
+  rechazo de campos tipo `apiKey`/`token`/`secret`.
+- 14 pruebas de la CLI contra un servidor HTTP local, sin red real.
+
+### Cambiado
+
+- `app/` deja de ser un esqueleto y pasa a ser la implementación real.
+- Mensajes de error HTTP traducidos y redactados.
+- Documentación y página de manual actualizadas.
+
 ## [0.1.0] - 2026-10-27
 
 ### Añadido

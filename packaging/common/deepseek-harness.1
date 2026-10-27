@@ -1,31 +1,75 @@
 .TH DEEPSEEK-HARNESS 1 "2026" "deepseek-harness" "User Commands"
 .SH NAME
-deepseek-harness \- CLI harness for DeepSeek models
+deepseek-harness \- CLI para la API de DeepSeek
 .SH SYNOPSIS
 .B deepseek-harness
-[\fIOPTIONS\fR] [\fICOMMAND\fR]
+.I comando
+[\fIopciones\fR]
 .SH DESCRIPTION
 .B deepseek-harness
-is a command line harness that wraps DeepSeek models with a local,
-reproducible workflow.
-.SH OPTIONS
+es una interfaz de línea de comandos para la API de DeepSeek con respuestas
+en streaming, configuración local sin secretos y sin dependencias externas.
+.SH COMANDOS
 .TP
-.B \-\-help
-Show help and exit.
+.B chat \fR[\fImensaje\fR]
+Envía un mensaje al modelo. Si no se indica mensaje, se lee de la entrada
+estándar. Opciones: \fB\-\-model\fR, \fB\-\-system\fR, \fB\-\-temperature\fR,
+\fB\-\-max-tokens\fR, \fB\-\-timeout\fR, \fB\-\-stream\fR,
+\fB\-\-no-stream\fR, \fB\-\-json\fR.
 .TP
-.B \-\-version
-Show the version and exit.
+.B models
+Lista los modelos disponibles para la clave configurada.
+.TP
+.B doctor \fR[\fB\-\-ping\fR]
+Comprueba versión, entorno, permisos de configuración y presencia de la clave.
+Con \fB\-\-ping\fR consulta la API sin mostrar el secreto.
+.TP
+.B config \fR[\fBshow\fR|\fBpath\fR|\fBinit\fR|\fBset\fR|\fBunset\fR]
+Gestiona la configuración local. Las claves de API nunca se guardan ahí.
 .SH FILES
 .TP
-.I ~/.config/deepseek-harness/
-User configuration directory (created with mode 0700 on first use).
+.I ~/.config/deepseek-harness/config.json
+Configuración local (modo 0600). Contiene modelo, URL base y parámetros;
+nunca contiene la clave de API.
 .SH ENVIRONMENT
 .TP
 .B DEEPSEEK_API_KEY
-API key used to authenticate against the DeepSeek API. Prefer reading it
-from your shell's secret manager; never commit it to version control.
+Clave de API. Es la única forma recomendada de autenticarse.
 .TP
-.B DH_NODE_BIN
-Path to the Node.js binary when using the system-node variant.
+.B DEEPSEEK_API_KEY_FILE
+Ruta a un archivo con la clave (se recomienda modo 0600).
+.TP
+.B DEEPSEEK_BASE_URL
+URL base de la API. Por defecto \fIhttps://api.deepseek.com\fR. Solo se
+permite HTTP en loopback para pruebas.
+.TP
+.B DEEPSEEK_MODEL
+Modelo por defecto (por ejemplo \fBdeepseek-chat\fR o \fBdeepseek-reasoner\fR).
+.TP
+.B XDG_CONFIG_HOME
+Directorio base de configuración.
+.SH EXAMPLES
+.nf
+deepseek-harness chat "Explica qué es un AppImage"
+echo "resume esto" | deepseek-harness chat
+deepseek-harness chat --model deepseek-reasoner "razona este problema"
+deepseek-harness doctor --ping
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Éxito.
+.TP
+.B 1
+Error de red, API o configuración.
+.TP
+.B 2
+Uso incorrecto de argumentos.
+.TP
+.B 3
+Falta la clave de API.
+.SH SECURITY
+La clave se lee del entorno o de un archivo y nunca se imprime, registra ni
+se escribe en la configuración. Las peticiones usan HTTPS salvo en loopback.
 .SH SEE ALSO
-The project homepage for full documentation.
+Project homepage: https://github.com/shary-hh/deepseek-harness

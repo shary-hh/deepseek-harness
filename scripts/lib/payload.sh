@@ -162,6 +162,19 @@ dh_copy_common_files() {
   fi
 }
 
+# Avisa si la versión del payload no coincide con VERSION (el binario
+# mostraría una versión distinta a la del paquete).
+dh_check_payload_version() {
+  local app="$1" app_ver pkg_ver
+  [[ -f "$app/package.json" ]] || return 0
+  app_ver="$(dh_json_field "$app/package.json" version || true)"
+  pkg_ver="$(dh_version)"
+  if [[ -n "$app_ver" && "$app_ver" != "$pkg_ver" ]]; then
+    warn "app/package.json declara $app_ver pero VERSION es $pkg_ver."
+    warn "El binario mostrará $app_ver; sincroniza ambos antes de publicar."
+  fi
+}
+
 # Uso: dh_stage_payload DEST [bundled|system]
 dh_stage_payload() {
   local dest="$1" mode="${2:-bundled}"
@@ -169,6 +182,7 @@ dh_stage_payload() {
 
   [[ -d "$DH_APP_DIR" ]] || die "No existe el payload: $DH_APP_DIR (usa --app-dir)."
   [[ "${DH_ALLOW_SENSITIVE:-0}" == "1" ]] || dh_assert_no_sensitive "$DH_APP_DIR"
+  dh_check_payload_version "$DH_APP_DIR"
 
   mkdir -p "$dest/lib/app" "$dest/bin"
 

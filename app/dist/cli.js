@@ -2,13 +2,14 @@
 'use strict';
 
 /*
- * Esqueleto de la CLI deepseek-harness.
+ * deepseek-harness - CLI para la API de DeepSeek.
  *
- * Reemplaza este archivo por tu aplicación real. Lo único importante para el
- * empaquetado es que `package.json` apunte `bin."deepseek-harness"` a un
- * entrypoint Node.js válido.
- *
- * Regla de oro: este proceso NUNCA imprime ni escribe claves de API.
+ * Principios:
+ *  - La clave vive SOLO en el entorno (DEEPSEEK_API_KEY) o en un archivo
+ *    indicado por DEEPSEEK_API_KEY_FILE. Nunca se escribe en la configuración,
+ *    ni se imprime, ni se registra.
+ *  - HTTPS obligatorio salvo loopback (para pruebas).
+ *  - Sin dependencias externas: usa fetch nativo de Node.js >= 20.
  */
 
 const fs = require('fs');
@@ -17,89 +18,653 @@ const path = require('path');
 
 const pkg = require(path.join(__dirname, '..', 'package.json'));
 
-function configDir() {
-  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-  return path.join(base, 'deepseek-harness');
+const VERSION = pkg.version;
+const DEFAULT_BASE_URL = 'https://api.deepseek.com';
+const DEFAULT_MODEL = 'deepseek-chat';
+const DEFAULT_TIMEOUT_MS = 120000;
+const DEFAULT_MAX_TOKENS = 4096;
+
+const SECRET_FIELD = /^(api[_-]?key|apikey|key|token|access[_-]?token|secret|client[_-]?secret|password|credentials)$/i;
+
+const CONFIG_FIELDS = new Set([
+  'baseUrl',
+  'model',
+  'systemPrompt',
+  'temperature',
+  'maxTokens',
+  'timeoutMs',
+]);
+
+class CliError extends Error {
+  constructor(message, code = 1) {
+    super(message);
+    this.name = 'CliError';
+    this.code = code;
+  }
 }
 
+// --- Configuración ---------------------------------------------------------
+
+function configHome() {
+  return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+}
+
+function configDir() {
+  return path.join(configHome(), 'deepseek-harness');
+}
+
+function configFile() {
+  return path.join(configDir(), 'config.json');
+}
+
+function readConfig() {
+  const file = configFile();
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw new CliError(`No se pudo leer la configuración (${file}): ${err.message}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new CliError(`Configuración inválida en ${file}: el JSON está malformado.`);
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new CliError(`Configuración inválida en ${file}: se esperaba un objeto.`);
+  }
+
+  // Nunca aceptamos secretos dentro de la configuración.
+  for (const key of Object.keys(parsed)) {
+    if (SECRET_FIELD.test(key)) {
+      throw new CliError(
+        `La configuración contiene el campo sospechoso "${key}". ` +
+        'Las claves de API deben ir en DEEPSEEK_API_KEY, no en el archivo.'
+      );
+    }
+  }
+
+  return parsed;
+}
+
+function writeConfig(cfg) {
+  const dir = configDir();
+  const file = configFile();
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    /* sistemas sin permisos POSIX */
+  }
+
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, file);
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* ignore */
+  }
+}
+
+function effectiveConfig() {
+  const cfg = readConfig();
+  return {
+    baseUrl: normalizeBaseUrl(process.env.DEEPSEEK_BASE_URL || cfg.baseUrl || DEFAULT_BASE_URL),
+    model: process.env.DEEPSEEK_MODEL || cfg.model || DEFAULT_MODEL,
+    systemPrompt: typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : '',
+    temperature: cfg.temperature === undefined ? 1 : Number(cfg.temperature),
+    maxTokens: cfg.maxTokens === undefined ? DEFAULT_MAX_TOKENS : Number(cfg.maxTokens),
+    timeoutMs: cfg.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : Number(cfg.timeoutMs),
+  };
+}
+
+function normalizeBaseUrl(raw) {
+  let url;
+  try {
+    url = new URL(String(raw));
+  } catch {
+    throw new CliError(`URL base inválida: ${raw}`);
+  }
+
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new CliError(
+      'La URL base debe usar HTTPS. Solo se permite HTTP en loopback (127.0.0.1/localhost) para pruebas.'
+    );
+  }
+
+  url.hash = '';
+  url.search = '';
+  return url.toString().replace(/\/$/, '');
+}
+
+// --- Credenciales ----------------------------------------------------------
+
+function readApiKey() {
+  let key = (process.env.DEEPSEEK_API_KEY || '').trim();
+
+  if (!key) {
+    const file = process.env.DEEPSEEK_API_KEY_FILE;
+    if (file) {
+      try {
+        key = fs.readFileSync(file, 'utf8').trim();
+      } catch (err) {
+        throw new CliError(`No se pudo leer DEEPSEEK_API_KEY_FILE (${file}): ${err.message}`, 3);
+      }
+      warnIfLoosePermissions(file);
+    }
+  }
+
+  if (!key) {
+    throw new CliError(
+      'Falta la clave de API. Define DEEPSEEK_API_KEY en tu entorno\n' +
+      'o apunta DEEPSEEK_API_KEY_FILE a un archivo con la clave (permisos 0600).',
+      3
+    );
+  }
+
+  return key;
+}
+
+function warnIfLoosePermissions(file) {
+  try {
+    const mode = fs.statSync(file).mode & 0o777;
+    if (mode & 0o077) {
+      process.stderr.write(
+        `aviso: ${file} es accesible por otros usuarios (permisos ${mode.toString(8)}); ` +
+        'usa chmod 600.\n'
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+// --- Utilidades ------------------------------------------------------------
+
+function redact(text) {
+  return String(text)
+    .replace(/(sk-|Bearer\s+)[A-Za-z0-9._-]+/gi, '$1***')
+    .replace(/[A-Za-z0-9_-]{32,}/g, '***')
+    .slice(0, 800);
+}
+
+function fail(message, code = 1) {
+  throw new CliError(message, code);
+}
+
+function describeHttpError(status, body) {
+  const known = {
+    400: 'Solicitud inválida (HTTP 400). Revisa el modelo y los parámetros.',
+    401: 'Clave de API inválida o ausente (HTTP 401). Revisa DEEPSEEK_API_KEY.',
+    402: 'Saldo insuficiente en tu cuenta de DeepSeek (HTTP 402).',
+    403: 'Acceso denegado (HTTP 403).',
+    404: 'Recurso no encontrado (HTTP 404). Revisa --model o la URL base.',
+    422: 'Parámetros no válidos (HTTP 422).',
+    429: 'Límite de peticiones alcanzado (HTTP 429). Reintenta más tarde.',
+    500: 'Error interno de DeepSeek (HTTP 500).',
+    502: 'Puerta de enlace incorrecta (HTTP 502).',
+    503: 'Servicio de DeepSeek no disponible (HTTP 503).',
+  };
+  const head = known[status] || `Error HTTP ${status}.`;
+  const detail = body ? `\n${redact(body)}` : '';
+  return new CliError(`${head}${detail}`);
+}
+
+async function readStdin() {
+  if (process.stdin.isTTY) return '';
+  let data = '';
+  for await (const chunk of process.stdin) data += chunk;
+  return data.trim();
+}
+
+function parseNumber(value, name, { min, max, integer = false }) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) fail(`--${name} debe ser un número.`, 2);
+  if (integer && !Number.isInteger(num)) fail(`--${name} debe ser un entero.`, 2);
+  if (min !== undefined && num < min) fail(`--${name} debe ser >= ${min}.`, 2);
+  if (max !== undefined && num > max) fail(`--${name} debe ser <= ${max}.`, 2);
+  return num;
+}
+
+// --- HTTP ------------------------------------------------------------------
+
+async function request(cfg, key, endpoint, { method = 'GET', body, timeoutMs } = {}) {
+  const url = `${cfg.baseUrl}${endpoint}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs ?? cfg.timeoutMs);
+
+  const headers = {
+    Authorization: `Bearer ${key}`,
+    Accept: body && body.stream ? 'text/event-stream' : 'application/json',
+  };
+  if (body) headers['Content-Type'] = 'application/json';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') {
+      fail('Tiempo de espera agotado al contactar con DeepSeek.');
+    }
+    fail(`No se pudo conectar con ${cfg.baseUrl}: ${redact(err.message)}`);
+  }
+
+  if (!response.ok) {
+    clearTimeout(timer);
+    let text = '';
+    try {
+      text = await response.text();
+    } catch {
+      /* ignore */
+    }
+    throw describeHttpError(response.status, text);
+  }
+
+  return { response, timer };
+}
+
+// --- Comandos --------------------------------------------------------------
+
+async function cmdChat(args) {
+  const cfg = effectiveConfig();
+  const opts = {
+    model: cfg.model,
+    system: cfg.systemPrompt,
+    temperature: cfg.temperature,
+    maxTokens: cfg.maxTokens,
+    stream: Boolean(process.stdout.isTTY),
+    json: false,
+    timeoutMs: cfg.timeoutMs,
+  };
+  const words = [];
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    switch (arg) {
+      case '--model':
+        opts.model = args[++i] || fail('--model requiere un valor.', 2);
+        break;
+      case '--system':
+        opts.system = args[++i] || fail('--system requiere un valor.', 2);
+        break;
+      case '--temperature':
+        opts.temperature = parseNumber(args[++i], 'temperature', { min: 0, max: 2 });
+        break;
+      case '--max-tokens':
+        opts.maxTokens = parseNumber(args[++i], 'max-tokens', { min: 1, integer: true });
+        break;
+      case '--timeout':
+        opts.timeoutMs = parseNumber(args[++i], 'timeout', { min: 1000, integer: true });
+        break;
+      case '--stream':
+        opts.stream = true;
+        break;
+      case '--no-stream':
+        opts.stream = false;
+        break;
+      case '--json':
+        opts.json = true;
+        opts.stream = false;
+        break;
+      case '--':
+        words.push(...args.slice(i + 1));
+        i = args.length;
+        break;
+      default:
+        if (arg.startsWith('-')) fail(`Opción desconocida: ${arg}`, 2);
+        words.push(arg);
+    }
+  }
+
+  let prompt = words.join(' ').trim();
+  if (!prompt) prompt = await readStdin();
+  if (!prompt) fail('Falta el mensaje. Uso: deepseek-harness chat "tu pregunta"', 2);
+
+  const key = readApiKey();
+  const messages = [];
+  if (opts.system) messages.push({ role: 'system', content: opts.system });
+  messages.push({ role: 'user', content: prompt });
+
+  const body = {
+    model: opts.model,
+    messages,
+    stream: opts.stream,
+    temperature: opts.temperature,
+    max_tokens: opts.maxTokens,
+  };
+
+  const { response, timer } = await request(cfg, key, '/chat/completions', {
+    method: 'POST',
+    body,
+    timeoutMs: opts.timeoutMs,
+  });
+
+  try {
+    if (opts.stream) {
+      await printStream(response);
+    } else if (opts.json) {
+      const data = await response.json();
+      process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+    } else {
+      const data = await response.json();
+      const content = data && data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content
+        : undefined;
+      if (typeof content !== 'string') {
+        fail('Respuesta inesperada de la API (sin choices[0].message.content).');
+      }
+      process.stdout.write(`${content}\n`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function printStream(response) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let wrote = false;
+
+  const handleEvent = (event) => {
+    for (const line of event.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload) continue;
+      if (payload === '[DONE]') return true;
+      let json;
+      try {
+        json = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      if (json.error) {
+        fail(`Error de la API: ${redact(json.error.message || JSON.stringify(json.error))}`);
+      }
+      const delta = json.choices && json.choices[0] && json.choices[0].delta
+        ? json.choices[0].delta.content
+        : undefined;
+      if (delta) {
+        process.stdout.write(delta);
+        wrote = true;
+      }
+    }
+    return false;
+  };
+
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let match;
+    while ((match = buffer.match(/\r?\n\r?\n/)) !== null) {
+      const index = match.index;
+      const event = buffer.slice(0, index);
+      buffer = buffer.slice(index + match[0].length);
+      if (handleEvent(event)) {
+        if (wrote) process.stdout.write('\n');
+        return;
+      }
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) handleEvent(buffer);
+  if (wrote) process.stdout.write('\n');
+}
+
+async function cmdModels(args) {
+  const cfg = effectiveConfig();
+  const json = args.includes('--json');
+  const key = readApiKey();
+  const { response, timer } = await request(cfg, key, '/models');
+  try {
+    const data = await response.json();
+    if (json) {
+      process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+      return;
+    }
+    const models = Array.isArray(data.data) ? data.data : [];
+    if (!models.length) {
+      process.stdout.write('No se devolvieron modelos.\n');
+      return;
+    }
+    for (const model of models) {
+      const id = model && model.id ? model.id : '(sin id)';
+      const owner = model && model.owned_by ? `  [${model.owned_by}]` : '';
+      process.stdout.write(`${id}${owner}\n`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function cmdDoctor(args) {
+  const cfg = effectiveConfig();
+  const ping = args.includes('--ping');
+  let key = '';
+
+  try {
+    key = readApiKey();
+  } catch {
+    key = '';
+  }
+
+  const file = configFile();
+  let perms = 'no existe';
+  try {
+    perms = (fs.statSync(file).mode & 0o777).toString(8).padStart(3, '0');
+  } catch {
+    /* no existe */
+  }
+
+  process.stdout.write('Entorno de deepseek-harness\n');
+  process.stdout.write(`  versión:           ${VERSION}\n`);
+  process.stdout.write(`  node:              ${process.version}\n`);
+  process.stdout.write(`  plataforma:        ${process.platform}/${process.arch}\n`);
+  process.stdout.write(`  URL base:          ${cfg.baseUrl}\n`);
+  process.stdout.write(`  modelo:            ${cfg.model}\n`);
+  process.stdout.write(`  configuración:     ${file} (permisos ${perms})\n`);
+  process.stdout.write(
+    `  DEEPSEEK_API_KEY:  ${key ? `definida (${key.length} caracteres, valor oculto)` : 'no definida'}\n`
+  );
+
+  if (!key) {
+    process.stderr.write('\nDefine DEEPSEEK_API_KEY o DEEPSEEK_API_KEY_FILE para usar chat/models.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (ping) {
+    try {
+      const { response, timer } = await request(cfg, key, '/models');
+      try {
+        const data = await response.json();
+        const count = Array.isArray(data.data) ? data.data.length : 0;
+        process.stdout.write(`  API:               OK (${count} modelos disponibles)\n`);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      process.stdout.write(`  API:               error (${err.message.split('\n')[0]})\n`);
+      process.exitCode = 1;
+    }
+  } else {
+    process.stdout.write('  API:               no comprobada (usa --ping)\n');
+  }
+}
+
+function cmdConfig(args) {
+  const sub = args[0] || 'show';
+
+  if (sub === 'path') {
+    process.stdout.write(`${configFile()}\n`);
+    return;
+  }
+
+  if (sub === 'show') {
+    const cfg = readConfig();
+    const shown = {};
+    for (const key of CONFIG_FIELDS) {
+      if (cfg[key] !== undefined) shown[key] = cfg[key];
+    }
+    process.stdout.write(`${JSON.stringify(shown, null, 2)}\n`);
+    return;
+  }
+
+  if (sub === 'init') {
+    const force = args.includes('--force');
+    const file = configFile();
+    if (fs.existsSync(file) && !force) {
+      fail(`Ya existe ${file}. Usa --force para sobrescribirlo.`);
+    }
+    writeConfig({
+      baseUrl: DEFAULT_BASE_URL,
+      model: DEFAULT_MODEL,
+      temperature: 1,
+      maxTokens: DEFAULT_MAX_TOKENS,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+    });
+    process.stdout.write(`Configuración creada: ${file}\n`);
+    return;
+  }
+
+  if (sub === 'set') {
+    const [, key, ...rest] = args;
+    const value = rest.join(' ');
+    if (!key || !value) fail('Uso: deepseek-harness config set <campo> <valor>', 2);
+    if (!CONFIG_FIELDS.has(key)) {
+      fail(`Campo no permitido: ${key}. Válidos: ${[...CONFIG_FIELDS].join(', ')}`, 2);
+    }
+    if (SECRET_FIELD.test(key)) {
+      fail('Las claves de API no se guardan en la configuración. Usa DEEPSEEK_API_KEY.', 2);
+    }
+
+    const cfg = readConfig();
+    if (['temperature', 'maxTokens', 'timeoutMs'].includes(key)) {
+      cfg[key] = parseNumber(value, key, { min: 0 });
+    } else if (key === 'baseUrl') {
+      cfg[key] = normalizeBaseUrl(value);
+    } else {
+      cfg[key] = value;
+    }
+    writeConfig(cfg);
+    process.stdout.write(`${key} = ${cfg[key]}\n`);
+    return;
+  }
+
+  if (sub === 'unset') {
+    const key = args[1];
+    if (!key) fail('Uso: deepseek-harness config unset <campo>', 2);
+    const cfg = readConfig();
+    delete cfg[key];
+    writeConfig(cfg);
+    process.stdout.write(`${key} eliminado\n`);
+    return;
+  }
+
+  fail(`Subcomando de config desconocido: ${sub}`, 2);
+}
+
+// --- Ayuda y entrada -------------------------------------------------------
+
 function printHelp() {
-  const name = pkg.name;
-  console.log(`${name} ${pkg.version}
+  process.stdout.write(`deepseek-harness ${VERSION}
 
 Uso:
-  ${name} <comando> [opciones]
+  deepseek-harness <comando> [opciones]
 
 Comandos:
-  doctor        Comprueba el entorno sin mostrar secretos
-  config        Muestra rutas de configuración
-  chat          (stub) punto de entrada de tu implementación
+  chat [mensaje]        Conversa con la API de DeepSeek
+  models                Lista los modelos disponibles
+  doctor [--ping]       Comprueba entorno, clave y conectividad
+  config [show|path|init|set|unset]
+                        Gestiona la configuración (nunca guarda claves)
 
-Opciones:
-  -h, --help      Muestra esta ayuda
-  -v, --version   Muestra la versión
+Opciones de chat:
+  --model <id>          Modelo (por defecto: ${DEFAULT_MODEL})
+  --system <texto>      Prompt de sistema
+  --temperature <n>     0..2 (por defecto: 1)
+  --max-tokens <n>      Tokens máximos de la respuesta
+  --timeout <ms>        Tiempo máximo de espera
+  --stream / --no-stream
+                        Forzar streaming o desactivarlo
+  --json                Imprime la respuesta JSON completa
+
+Globales:
+  -h, --help            Muestra esta ayuda
+  -v, --version         Muestra la versión
 
 Entorno:
-  DEEPSEEK_API_KEY   Clave de API (nunca se imprime ni se guarda)
+  DEEPSEEK_API_KEY      Clave de API (obligatoria; nunca se imprime)
+  DEEPSEEK_API_KEY_FILE Archivo con la clave (permisos 0600)
+  DEEPSEEK_BASE_URL     URL base (por defecto: ${DEFAULT_BASE_URL})
+  DEEPSEEK_MODEL        Modelo por defecto
 
-Este es el esqueleto de ejemplo: sustituye app/dist/cli.js por tu aplicación.
+Ejemplos:
+  deepseek-harness chat "Explica qué es un AppImage"
+  echo "resume este texto" | deepseek-harness chat
+  deepseek-harness chat --model deepseek-reasoner "razona esto"
+  deepseek-harness models
+  deepseek-harness doctor --ping
 `);
 }
 
-function doctor() {
-  const key = process.env.DEEPSEEK_API_KEY;
-  console.log('Entorno de deepseek-harness');
-  console.log(`  versión:        ${pkg.version}`);
-  console.log(`  node:           ${process.version}`);
-  console.log(`  plataforma:     ${process.platform}/${process.arch}`);
-  console.log(`  DEEPSEEK_API_KEY: ${key ? 'definida (valor oculto)' : 'no definida'}`);
-  console.log(`  config:         ${configDir()}`);
-  process.exit(key ? 0 : 1);
-}
+async function main(argv) {
+  const [command, ...rest] = argv;
 
-function showConfig() {
-  console.log(`directorio de configuración: ${configDir()}`);
-  console.log('No se escribe nada automáticamente: crea la configuración con modo 0700.');
-}
-
-function chat() {
-  console.error('El comando "chat" es un stub. Implementa tu lógica en app/dist/cli.js.');
-  process.exit(2);
-}
-
-function main(argv) {
-  const [cmd] = argv;
-
-  if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') {
+  if (!command || command === 'help' || command === '-h' || command === '--help') {
     printHelp();
     return;
   }
-  if (cmd === '-v' || cmd === '--version' || cmd === 'version') {
-    console.log(pkg.version);
+  if (command === '-v' || command === '--version' || command === 'version') {
+    process.stdout.write(`${VERSION}\n`);
     return;
   }
 
-  switch (cmd) {
+  switch (command) {
+    case 'chat':
+      await cmdChat(rest);
+      break;
+    case 'models':
+      await cmdModels(rest);
+      break;
     case 'doctor':
-      doctor();
+      await cmdDoctor(rest);
       break;
     case 'config':
-      showConfig();
-      break;
-    case 'chat':
-      chat();
+      cmdConfig(rest);
       break;
     default:
-      console.error(`Comando desconocido: ${cmd}`);
-      printHelp();
-      process.exit(64);
+      fail(`Comando desconocido: ${command}. Usa --help.`, 2);
   }
 }
 
-// Si el runtime no expone una versión moderna, falla con un mensaje claro.
 const major = Number(process.versions.node.split('.')[0]);
 if (major < 20) {
-  console.error(`deepseek-harness requiere Node.js >= 20 (detectado ${process.version}).`);
+  process.stderr.write(`deepseek-harness requiere Node.js >= 20 (detectado ${process.version}).\n`);
   process.exit(1);
 }
 
-main(process.argv.slice(2));
+process.on('SIGINT', () => {
+  process.stderr.write('\ninterrumpido\n');
+  process.exit(130);
+});
+
+main(process.argv.slice(2)).catch((err) => {
+  if (err instanceof CliError) {
+    process.stderr.write(`error: ${err.message}\n`);
+    process.exit(err.code);
+  }
+  process.stderr.write(`error: ${redact(err && err.message ? err.message : String(err))}\n`);
+  process.exit(1);
+});

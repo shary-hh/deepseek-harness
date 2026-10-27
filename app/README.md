@@ -1,41 +1,52 @@
-# Payload de la aplicación
+# deepseek-harness (aplicación)
 
-Este directorio contiene un **esqueleto funcional** de la CLI para que el
-repositorio pueda generar paquetes desde el primer momento.
+CLI para la API de DeepSeek, sin dependencias externas. Usa `fetch` nativo de
+Node.js >= 20.
 
-## Sustitúyelo por tu app
-
-Opción A — copiar tu proyecto aquí:
+## Uso
 
 ```bash
-rm -rf app
-cp -a /ruta/a/tu/proyecto app
-# instala solo dependencias de producción
-( cd app && npm ci --omit=dev )
+export DEEPSEEK_API_KEY="..."   # nunca se guarda en disco
+
+node app/dist/cli.js --help
+node app/dist/cli.js chat "Explica qué es un AppImage"
+echo "resume este texto" | node app/dist/cli.js chat
+node app/dist/cli.js chat --model deepseek-reasoner "razona esto"
+node app/dist/cli.js models
+node app/dist/cli.js doctor --ping
+node app/dist/cli.js config init
 ```
 
-Opción B — dejar tu proyecto donde está:
+## Seguridad
+
+- La clave vive en `DEEPSEEK_API_KEY` o en `DEEPSEEK_API_KEY_FILE` (0600).
+- `config.json` se crea con modo `0600` y **rechaza** campos tipo `apiKey`,
+  `token`, `secret`, etc.
+- `doctor` muestra solo la longitud de la clave, nunca su valor.
+- Los errores HTTP se redactan antes de imprimirse.
+- Solo se permite HTTP en loopback; el resto exige HTTPS.
+
+## Sustituir por tu propia app
+
+El contrato de empaquetado es:
+
+```text
+app/
+├── package.json     # "bin": { "deepseek-harness": "dist/cli.js" }
+├── dist/cli.js      # entrypoint
+└── node_modules/    # dependencias de producción (si las hay)
+```
+
+Puedes reemplazar `app/` por tu proyecto y reconstruir con:
 
 ```bash
 ./scripts/build-deb.sh --app-dir /ruta/a/tu/proyecto
 ```
 
-## Contrato mínimo
-
-```text
-app/
-├── package.json     # "bin": { "deepseek-harness": "dist/cli.js" }
-├── dist/cli.js      # entrypoint CommonJS o ESM
-└── node_modules/    # dependencias de producción
-```
-
-- El entrypoint debe ser ejecutable con el Node embebido (>= 20).
-- No incluyas `.env`, claves ni certificados: el build aborta si los detecta.
-- No imprimas `DEEPSEEK_API_KEY` en logs.
-
-## Probar sin empaquetar
+## Pruebas
 
 ```bash
-node app/dist/cli.js --help
-node app/dist/cli.js doctor
+node --test tests/cli.test.js
 ```
+
+Usan un servidor HTTP local; no tocan la red real ni claves reales.

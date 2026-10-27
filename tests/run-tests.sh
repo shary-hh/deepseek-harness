@@ -18,6 +18,10 @@ WITH_EXE=0
 PASS=0; FAIL=0
 declare -a FAILED=()
 
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/dh-test.XXXXXX")"
+cleanup() { rm -rf -- "$TMP"; }
+trap cleanup EXIT
+
 pass() { PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m %s\n' "$*"; }
 fail() { FAIL=$((FAIL+1)); FAILED+=("$*"); printf '  \033[31mFAIL\033[0m %s\n' "$*"; }
 
@@ -43,11 +47,19 @@ fi
 section "3. Secretos"
 if "$ROOT/scripts/scan-secrets.sh" >/dev/null 2>&1; then pass "scan-secrets"; else fail "scan-secrets"; fi
 
-section "4. Paquete .deb (payload de prueba, node del sistema)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/dh-test.XXXXXX")"
-cleanup() { rm -rf -- "$TMP"; }
-trap cleanup EXIT
+section "4. CLI (servidor mock, sin red real)"
+if command -v node >/dev/null 2>&1; then
+  if ( cd "$ROOT" && node --test tests/cli.test.js >"$TMP/cli.log" 2>&1 ); then
+    pass "node --test tests/cli.test.js"
+  else
+    fail "node --test tests/cli.test.js"
+    tail -40 "$TMP/cli.log" >&2
+  fi
+else
+  printf '  (omitido: node no instalado)\n'
+fi
 
+section "5. Paquete .deb (payload de prueba, node del sistema)"
 APP_FIXTURE="$ROOT/tests/fixtures/app"
 
 if DH_APP_DIR="$APP_FIXTURE" "$ROOT/scripts/build-deb.sh" \
@@ -78,7 +90,7 @@ else
   fail "artefacto .deb generado"
 fi
 
-section "5. Staging de AppImage y Windows"
+section "6. Staging de AppImage y Windows"
 if DH_APP_DIR="$APP_FIXTURE" "$ROOT/scripts/build-appimage.sh" \
     --system-node --app-dir "$APP_FIXTURE" --output-dir "$TMP" --stage-only >/dev/null 2>&1; then
   pass "build-appimage.sh --stage-only"
@@ -95,14 +107,14 @@ if [[ "$WITH_EXE" == "1" ]]; then
   fi
 fi
 
-section "6. Instalador (dry-run)"
+section "7. Instalador (dry-run)"
 if "$ROOT/install.sh" --from-source --user --dry-run --yes >/dev/null 2>&1; then
   pass "install.sh --dry-run"
 else
   fail "install.sh --dry-run"
 fi
 
-section "7. RPM (si rpmbuild está disponible)"
+section "8. RPM (si rpmbuild está disponible)"
 if command -v rpmbuild >/dev/null 2>&1; then
   if DH_APP_DIR="$APP_FIXTURE" "$ROOT/scripts/build-rpm.sh" \
       --system-node --app-dir "$APP_FIXTURE" --output-dir "$TMP" --version 0.1.0 >"$TMP/rpm.log" 2>&1; then

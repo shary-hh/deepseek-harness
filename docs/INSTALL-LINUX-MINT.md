@@ -64,13 +64,13 @@ dpkg -s deepseek-harness
 Descarga el `.deb` y el `SHA256SUMS` del release, verifica y luego:
 
 ```bash
-sudo apt install ./deepseek-harness_0.1.0_amd64.deb
+sudo apt install ./deepseek-harness_0.2.0_amd64.deb
 ```
 
 O usa el instalador con el hash fuera de banda:
 
 ```bash
-./install.sh --version 0.1.0 --sha256 <hash>
+./install.sh --version 0.2.0 --sha256 <hash>
 ```
 
 ## Qué escribe exactamente el instalador
@@ -114,6 +114,15 @@ El instalador **no** pide ni guarda tu clave. Configúrala en tu entorno:
 
 ```bash
 export DEEPSEEK_API_KEY="..."   # solo en tu shell o gestor de secretos
+```
+
+Uso rápido:
+
+```bash
+deepseek-harness --help
+deepseek-harness doctor --ping
+deepseek-harness chat "Explica qué es Linux Mint"
+deepseek-harness models
 ```
 
 Recomendaciones:
