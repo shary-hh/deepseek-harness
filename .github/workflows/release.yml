@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  DH_REPO_SLUG: ${{ github.repository }}
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
