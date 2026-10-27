@@ -266,3 +266,28 @@ button.danger {
 
 .bubble a { color: var(--accent-2); }
 .bubble strong { color: #ffffff; }
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 6px 4px;
+  max-width: 88%;
+}
+
+.activity[hidden] { display: none; }
+
+.tool-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: #0e1822;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+}
+
+.tool-line.ok { color: #9fe8d6; border-color: rgba(56, 209, 176, 0.3); }
+.tool-line.err { color: #ffb4ae; border-color: rgba(255, 123, 114, 0.3); }

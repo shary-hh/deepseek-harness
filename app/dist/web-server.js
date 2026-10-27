@@ -27,6 +27,9 @@ const {
   redact,
 } = require('./core');
 
+const { resolveWorkspace } = require('./workspace');
+const { runAgent } = require('./agent');
+
 const pkg = require(path.join(__dirname, '..', 'package.json'));
 
 const WEB_DIR = path.join(__dirname, 'web');
@@ -146,13 +149,14 @@ function errorStatus(err) {
 /**
  * Arranca el servidor. Devuelve { server, url, token }.
  */
-async function startWeb({ host = '127.0.0.1', port = 8787, open = false } = {}) {
+async function startWeb({ host = '127.0.0.1', port = 8787, open = false, workspace = null } = {}) {
   if (!isLoopback(host)) {
     throw new CliError(
       `Por seguridad, la interfaz web solo puede escuchar en loopback (127.0.0.1/::1), no en "${host}".`
     );
   }
 
+  const workspaceRoot = resolveWorkspace(workspace);
   const token = crypto.randomBytes(32).toString('hex');
   const tokenBuffer = Buffer.from(token);
   let activeStreams = 0;
@@ -222,6 +226,11 @@ async function startWeb({ host = '127.0.0.1', port = 8787, open = false } = {}) 
       temperature: numberInRange(body.temperature, cfg.temperature, { min: 0, max: 2 }),
       max_tokens: numberInRange(body.maxTokens, cfg.maxTokens, { min: 1, max: 8192, integer: true }),
     };
+
+    if (workspaceRoot) {
+      await handleWorkspaceChat(req, res, { body, payload, cfg, key });
+      return;
+    }
 
     if (body.stream === false) {
       try {
@@ -333,6 +342,80 @@ async function startWeb({ host = '127.0.0.1', port = 8787, open = false } = {}) 
     if (buffer.trim()) handleEvent(buffer);
   }
 
+  async function handleWorkspaceChat(req, res, { body, payload, cfg, key }) {
+    if (body.stream === false) {
+      const events = [];
+      try {
+        const result = await runAgent({
+          cfg,
+          key,
+          model: payload.model,
+          messages: payload.messages,
+          workspace: workspaceRoot,
+          temperature: payload.temperature,
+          maxTokens: payload.max_tokens,
+          timeoutMs: cfg.timeoutMs,
+          onEvent: (event) => events.push(event),
+        });
+        sendJson(res, 200, {
+          content: result.content,
+          steps: result.steps,
+          tools: events,
+          usage: result.usage,
+        });
+      } catch (err) {
+        sendJson(res, errorStatus(err), { error: redact(err.message) });
+      }
+      return;
+    }
+
+    if (activeStreams >= MAX_STREAMS) {
+      sendJson(res, 429, { error: 'Demasiadas peticiones simultáneas. Espera a que termine una.' });
+      return;
+    }
+    activeStreams += 1;
+
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort();
+    });
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const sendEvent = (name, eventPayload) => {
+      if (res.writableEnded || res.destroyed) return;
+      res.write(`event: ${name}\ndata: ${JSON.stringify(eventPayload)}\n\n`);
+    };
+
+    try {
+      const result = await runAgent({
+        cfg,
+        key,
+        model: payload.model,
+        messages: payload.messages,
+        workspace: workspaceRoot,
+        temperature: payload.temperature,
+        maxTokens: payload.max_tokens,
+        timeoutMs: cfg.timeoutMs,
+        signal: controller.signal,
+        onEvent: (event) => sendEvent(event.type, event),
+      });
+      sendEvent('delta', { text: result.content });
+      sendEvent('done', { steps: result.steps });
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        sendEvent('error', { message: redact(err.message) });
+      }
+    } finally {
+      activeStreams -= 1;
+      if (!res.writableEnded) res.end();
+    }
+  }
+
   async function handle(req, res) {
     setSecurityHeaders(res);
 
@@ -413,6 +496,8 @@ async function startWeb({ host = '127.0.0.1', port = 8787, open = false } = {}) 
         model: cfg.model,
         baseUrl: cfg.baseUrl,
         hasKey,
+        workspace: workspaceRoot,
+        tools: Boolean(workspaceRoot),
       });
       return;
     }
@@ -461,6 +546,16 @@ async function startWeb({ host = '127.0.0.1', port = 8787, open = false } = {}) 
   await new Promise((resolve, reject) => {
     const onError = (err) => {
       server.removeListener('listening', onListening);
+      if (err.code === 'EADDRINUSE') {
+        reject(new CliError(
+          `El puerto ${port} ya está en uso. Usa --port 0 para elegir uno libre o --port <otro>.`
+        ));
+        return;
+      }
+      if (err.code === 'EACCES') {
+        reject(new CliError(`Sin permiso para escuchar en el puerto ${port}. Usa un puerto >= 1024.`));
+        return;
+      }
       reject(new CliError(`No se pudo escuchar en ${host}:${port}: ${err.message}`));
     };
     const onListening = () => {
@@ -477,7 +572,7 @@ async function startWeb({ host = '127.0.0.1', port = 8787, open = false } = {}) 
   const displayHost = host.includes(':') ? `[${host}]` : host;
   const url = `http://${displayHost}:${actualPort}/?token=${token}`;
 
-  return { server, url, token, open };
+  return { server, url, token, open, workspace: workspaceRoot };
 }
 
 function openBrowser(url) {
@@ -497,9 +592,12 @@ function openBrowser(url) {
  * Arranca la interfaz y espera hasta que se cierre (Ctrl+C).
  */
 async function runWeb(options = {}) {
-  const { server, url, open } = await startWeb(options);
+  const { server, url, open, workspace } = await startWeb(options);
 
   process.stdout.write(`Interfaz web: ${url}\n`);
+  if (workspace) {
+    process.stdout.write(`Workspace (solo lectura): ${workspace}\n`);
+  }
   process.stdout.write('Pulsa Ctrl+C para detener.\n');
   if (open) openBrowser(url);
 

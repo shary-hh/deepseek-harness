@@ -64,11 +64,16 @@
     who.className = 'who';
     who.textContent = role === 'user' ? 'Tú' : 'DeepSeek';
 
+    const activity = document.createElement('div');
+    activity.className = 'activity';
+    activity.hidden = true;
+
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     bubble.textContent = text;
+    bubble.activity = activity;
 
-    row.append(who, bubble);
+    row.append(who, activity, bubble);
     messagesEl.append(row);
     scroll(true);
     return bubble;
@@ -144,6 +149,7 @@
     setStatus('Generando…');
 
     let accumulated = '';
+    const toolLines = new Map();
     try {
       const response = await api('/api/chat', {
         method: 'POST',
@@ -173,9 +179,24 @@
           const event = parseEvent(raw);
           if (!event) continue;
 
-          if (event.name === 'delta') {
+          if (event.name === 'tool') {
+            bubble.activity.hidden = false;
+            const line = document.createElement('div');
+            line.className = 'tool-line';
+            line.textContent = `⚙ ${event.data.name} ${JSON.stringify(event.data.args || {})}`;
+            bubble.activity.append(line);
+            toolLines.set(event.data.id, line);
+            setStatus('Usando herramientas…');
+          } else if (event.name === 'tool_result') {
+            const line = toolLines.get(event.data.id);
+            if (line) {
+              line.classList.add(event.data.ok ? 'ok' : 'err');
+              line.textContent += ` — ${event.data.ok ? '✓' : '✗'} ${event.data.summary}`;
+            }
+          } else if (event.name === 'delta') {
             accumulated += event.data.text || '';
             bubble.innerHTML = renderMarkdown(accumulated);
+            setStatus('Generando…');
             scroll();
           } else if (event.name === 'error') {
             throw new Error(event.data.message || 'Error de la API.');
@@ -255,7 +276,8 @@
         setStatus('Sin clave', 'err');
         sendBtn.disabled = true;
       } else {
-        hintEl.textContent = `Servidor local · ${health.model} · ${health.baseUrl}`;
+        const ws = health.workspace ? ` · workspace: ${health.workspace}` : ' · sin workspace';
+        hintEl.textContent = `Servidor local · ${health.model}${ws}`;
         await loadModels(health.model);
         setStatus('Listo', 'ok');
         setTimeout(() => setStatus(''), 1500);

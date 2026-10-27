@@ -47,12 +47,12 @@ fi
 section "3. Secretos"
 if "$ROOT/scripts/scan-secrets.sh" >/dev/null 2>&1; then pass "scan-secrets"; else fail "scan-secrets"; fi
 
-section "4. CLI + web (servidores mock, sin red real)"
+section "4. CLI + web + workspace (mocks, sin red real)"
 if command -v node >/dev/null 2>&1; then
-  if ( cd "$ROOT" && node --test tests/cli.test.js tests/web.test.js >"$TMP/cli.log" 2>&1 ); then
-    pass "node --test tests/cli.test.js tests/web.test.js"
+  if ( cd "$ROOT" && node --test tests/ >"$TMP/cli.log" 2>&1 ); then
+    pass "node --test tests/"
   else
-    fail "node --test tests/cli.test.js tests/web.test.js"
+    fail "node --test tests/"
     tail -40 "$TMP/cli.log" >&2
   fi
 else

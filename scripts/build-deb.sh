@@ -107,7 +107,7 @@ sed -e "s|@APP_NAME@|$APP_NAME|g" \
   > "$PKGROOT/usr/share/doc/$APP_NAME/copyright"
 
 if [[ "$MODE" == "system" ]]; then
-  DEPENDS="nodejs (>= 20), ca-certificates"
+  DEPENDS="nodejs (>= 22.19.0), ca-certificates"
 else
   DEPENDS="libc6 (>= 2.28), libgcc-s1, libstdc++6"
 fi

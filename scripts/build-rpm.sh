@@ -77,7 +77,7 @@ install -m 0644 "$REPO_ROOT/packaging/common/$APP_BIN.1" "$TOP/SOURCES/$APP_BIN.
 install -m 0644 "$REPO_ROOT/LICENSE" "$TOP/SOURCES/LICENSE"
 
 if [[ "$MODE" == "system" ]]; then
-  REQUIRES=$'Requires:       nodejs >= 20\nRequires:       ca-certificates'
+  REQUIRES=$'Requires:       nodejs >= 22.19\nRequires:       ca-certificates'
 else
   REQUIRES=$'Requires:       glibc >= 2.28\nRequires:       libgcc\nRequires:       libstdc++'
 fi

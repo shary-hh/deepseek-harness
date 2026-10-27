@@ -15,7 +15,7 @@ en streaming, configuración local sin secretos y sin dependencias externas.
 Envía un mensaje al modelo. Si no se indica mensaje, se lee de la entrada
 estándar. Opciones: \fB\-\-model\fR, \fB\-\-system\fR, \fB\-\-temperature\fR,
 \fB\-\-max-tokens\fR, \fB\-\-timeout\fR, \fB\-\-stream\fR,
-\fB\-\-no-stream\fR, \fB\-\-json\fR.
+\fB\-\-no-stream\fR, \fB\-\-json\fR, \fB\-\-workspace\fR \fIDIR\fR.
 .TP
 .B models
 Lista los modelos disponibles para la clave configurada.
@@ -27,9 +27,11 @@ Con \fB\-\-ping\fR consulta la API sin mostrar el secreto.
 .B config \fR[\fBshow\fR|\fBpath\fR|\fBinit\fR|\fBset\fR|\fBunset\fR]
 Gestiona la configuración local. Las claves de API nunca se guardan ahí.
 .TP
-.B web \fR[\fB\-\-port\fR \fIN\fR] [\fB\-\-host\fR \fIHOST\fR] [\fB\-\-open\fR]
+.B web \fR[\fB\-\-port\fR \fIN\fR] [\fB\-\-host\fR \fIHOST\fR] [\fB\-\-open\fR] [\fB\-\-workspace\fR \fIDIR\fR]
 Levanta la interfaz gráfica local en loopback. Genera un token de sesión y
 sirve la UI solo tras autenticarlo. La clave de API permanece en el servidor.
+Con \fB\-\-workspace\fR habilita las herramientas de solo lectura
+\fBworkspace_list\fR y \fBworkspace_read\fR sobre ese directorio.
 .SH FILES
 .TP
 .I ~/.config/deepseek-harness/config.json
@@ -75,5 +77,7 @@ Falta la clave de API.
 .SH SECURITY
 La clave se lee del entorno o de un archivo y nunca se imprime, registra ni
 se escribe en la configuración. Las peticiones usan HTTPS salvo en loopback.
+El workspace es de solo lectura, rechaza rutas fuera del directorio y oculta
+archivos sensibles (.env, claves, credenciales, .git, .ssh).
 .SH SEE ALSO
 Project homepage: https://github.com/shary-hh/deepseek-harness

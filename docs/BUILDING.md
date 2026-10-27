@@ -29,7 +29,7 @@ dpkg-deb -c   dist/deepseek-harness_0.2.0_amd64.deb
 
 - Layout: `/opt/deepseek-harness/{bin,lib}`, symlink en `/usr/bin`.
 - `Depends`: `libc6 (>= 2.28), libgcc-s1` (Node embebido) o
-  `nodejs (>= 20)` con `--system-node`.
+  `nodejs (>= 22.19)` con `--system-node`.
 - Incluye `DEBIAN/md5sums`, `copyright` y man page comprimida.
 - `--root-owner-group` evita depender de `fakeroot` en dpkg moderno.
 

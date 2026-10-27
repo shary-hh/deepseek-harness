@@ -124,6 +124,10 @@ deepseek-harness doctor --ping
 deepseek-harness chat "Explica qué es Linux Mint"
 deepseek-harness models
 deepseek-harness web --open
+
+# Herramientas de solo lectura sobre una carpeta de prueba
+mkdir -p ~/dsh-test
+deepseek-harness web --workspace ~/dsh-test --open
 ```
 
 Recomendaciones:

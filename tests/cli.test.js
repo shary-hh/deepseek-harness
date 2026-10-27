@@ -114,7 +114,7 @@ test('doctor no imprime la clave, aunque esté definida', async () => {
   });
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /definida \(.*valor oculto\)/);
+  assert.match(result.stdout, /definida \(.*valor oculto/);
   assert.ok(!result.stdout.includes(secret), 'stdout no debe contener la clave');
   assert.ok(!result.stderr.includes(secret), 'stderr no debe contener la clave');
 });
@@ -323,4 +323,61 @@ test('exige HTTPS fuera de loopback', async () => {
   });
   assert.equal(result.code, 1);
   assert.match(result.stderr, /HTTPS/);
+});
+
+test('chat --workspace ejecuta herramientas de solo lectura', async () => {
+  const cfg = newConfigDir();
+  const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dh-cli-ws-')));
+  fs.writeFileSync(path.join(workspace, 'nota.txt'), 'contenido\n');
+
+  let calls = 0;
+  await withServer(
+    (req, res) => {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw || '{}');
+        calls += 1;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        if (calls === 1 && Array.isArray(body.tools) && body.tools.length) {
+          res.end(JSON.stringify({
+            choices: [{
+              message: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{
+                  id: 'call_1',
+                  type: 'function',
+                  function: { name: 'workspace_list', arguments: '{"path":"."}' },
+                }],
+              },
+            }],
+          }));
+          return;
+        }
+        res.end(JSON.stringify({ choices: [{ message: { content: 'Veo: nota.txt' } }] }));
+      });
+    },
+    async (port) => {
+      const result = await run(['chat', '--workspace', workspace, 'lista'], {
+        env: {
+          ...baseEnv(cfg),
+          DEEPSEEK_API_KEY: 'test-key',
+          DEEPSEEK_BASE_URL: `http://127.0.0.1:${port}`,
+        },
+      });
+      assert.equal(result.code, 0);
+      assert.equal(result.stdout.trim(), 'Veo: nota.txt');
+      assert.match(result.stderr, /\[tool\] workspace_list/);
+      assert.match(result.stderr, /\[tool\] ok workspace_list/);
+    }
+  );
+});
+
+test('doctor muestra el workspace configurado', async () => {
+  const cfg = newConfigDir();
+  const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dh-cli-doc-')));
+  const result = await run(['doctor', '--workspace', workspace], { env: baseEnv(cfg) });
+  assert.match(result.stdout, new RegExp(`workspace:\\s+${workspace.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(result.stdout, /node:.*soportado/);
 });

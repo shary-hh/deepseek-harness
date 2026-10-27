@@ -80,7 +80,7 @@ function startMockApi() {
   });
 }
 
-function startWeb(configDir, apiPort) {
+function startWeb(configDir, apiPort, extraArgs = []) {
   const env = {
     ...process.env,
     XDG_CONFIG_HOME: configDir,
@@ -90,7 +90,7 @@ function startWeb(configDir, apiPort) {
     DEEPSEEK_MODEL: '',
   };
 
-  const proc = spawn(process.execPath, [CLI, 'web', '--port', '0'], {
+  const proc = spawn(process.execPath, [CLI, 'web', '--port', '0', ...extraArgs], {
     cwd: ROOT,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -147,6 +147,53 @@ async function login(handle) {
   const match = cookie.match(/dsh_session=([0-9a-f]{64})/);
   assert.ok(match, 'debe establecer la cookie de sesión');
   return match[1];
+}
+
+function makeWorkspace() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dh-web-ws-'));
+  fs.writeFileSync(path.join(root, 'nota.txt'), 'contenido de prueba\n');
+  return fs.realpathSync(root);
+}
+
+function startToolApi() {
+  let calls = 0;
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      calls += 1;
+      res.writeHead(200, { 'content-type': 'application/json' });
+
+      if (Array.isArray(body.tools) && body.tools.length > 0 && calls === 1) {
+        res.end(JSON.stringify({
+          choices: [{
+            message: {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{
+                id: 'call_1',
+                type: 'function',
+                function: {
+                  name: 'workspace_list',
+                  arguments: '{"path":".","depth":1}',
+                },
+              }],
+            },
+          }],
+        }));
+        return;
+      }
+
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'Veo: nota.txt' } }],
+      }));
+    });
+  });
+
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
 }
 
 test('la interfaz web exige token y establece cookie HttpOnly', async () => {
@@ -335,4 +382,115 @@ test('rechaza escuchar fuera de loopback', async () => {
 
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /loopback/);
+});
+
+test('workspace: health, tools y streaming de eventos', async () => {
+  const configDir = newConfigDir();
+  const workspace = makeWorkspace();
+  const { server, port } = await startToolApi();
+  let handle;
+
+  try {
+    handle = await startWeb(configDir, port, ['--workspace', workspace]);
+    const cookie = await login(handle);
+
+    const health = await fetch(`${handle.origin}/api/health`, {
+      headers: { Cookie: `dsh_session=${cookie}` },
+    });
+    const data = await health.json();
+    assert.equal(data.tools, true);
+    assert.equal(data.workspace, workspace);
+
+    const response = await fetch(`${handle.origin}/api/chat`, {
+      method: 'POST',
+      headers: {
+        Cookie: `dsh_session=${cookie}`,
+        'Content-Type': 'application/json',
+        Origin: handle.origin,
+      },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'lista' }], stream: true }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /event: tool/);
+    assert.match(body, /workspace_list/);
+    assert.match(body, /event: tool_result/);
+    assert.match(body, /event: delta/);
+    assert.match(body, /Veo: nota\.txt/);
+    assert.match(body, /event: done/);
+  } finally {
+    await stopWeb(handle);
+    server.close();
+  }
+});
+
+test('workspace: modo no-stream devuelve contenido y trazas de tools', async () => {
+  const configDir = newConfigDir();
+  const workspace = makeWorkspace();
+  const { server, port } = await startToolApi();
+  let handle;
+
+  try {
+    handle = await startWeb(configDir, port, ['--workspace', workspace]);
+    const cookie = await login(handle);
+
+    const response = await fetch(`${handle.origin}/api/chat`, {
+      method: 'POST',
+      headers: {
+        Cookie: `dsh_session=${cookie}`,
+        'Content-Type': 'application/json',
+        Origin: handle.origin,
+      },
+      body: JSON.stringify({ message: 'lista', stream: false }),
+    });
+
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.content, 'Veo: nota.txt');
+    assert.equal(data.steps, 2);
+    assert.equal(data.tools.length, 2);
+    assert.equal(data.tools[0].type, 'tool');
+    assert.equal(data.tools[1].type, 'tool_result');
+  } finally {
+    await stopWeb(handle);
+    server.close();
+  }
+});
+
+test('web avisa cuando el puerto está en uso', async () => {
+  const configDir = newConfigDir();
+  const { server, port } = await startMockApi();
+  let handle;
+
+  try {
+    handle = await startWeb(configDir, port);
+
+    const result = await new Promise((resolve) => {
+      const proc = spawn(
+        process.execPath,
+        [CLI, 'web', '--port', String(handle.port)],
+        {
+          cwd: ROOT,
+          env: {
+            ...process.env,
+            XDG_CONFIG_HOME: configDir,
+            DEEPSEEK_API_KEY: 'test-key-web',
+            DEEPSEEK_BASE_URL: `http://127.0.0.1:${port}`,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+      let stderr = '';
+      proc.stderr.on('data', (chunk) => { stderr += chunk; });
+      proc.on('exit', (code) => resolve({ code, stderr }));
+    });
+
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /ya está en uso/);
+    assert.match(result.stderr, /--port 0/);
+  } finally {
+    await stopWeb(handle);
+    server.close();
+  }
 });

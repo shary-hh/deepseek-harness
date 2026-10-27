@@ -4,6 +4,25 @@ Todas las cambios relevantes se documentan aquí. Formato basado en
 [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y
 [SemVer](https://semver.org/lang/es/).
 
+## [0.4.0] - 2026-10-27
+
+### Añadido
+
+- Workspace de solo lectura con `--workspace` para `chat`, `web` y `doctor`.
+  - Herramientas `workspace_list` y `workspace_read` con tool calling.
+  - Sandbox: rutas relativas, sin `..`, sin symlinks que escapen, sin `.env`,
+    claves, credenciales, `.git`, `.ssh` ni `node_modules`.
+  - Límites: 128 KB/archivo, 300 entradas, profundidad 3, 6 pasos.
+- Guardia de versión de Node `^22.19.0 || >=24.2.0` (evita 24.0/24.1).
+- `doctor` ampliado: compatibilidad de Node, origen de la clave, proxy y
+  validación de workspace.
+- Mensaje claro cuando el puerto de la web está en uso.
+
+### Cambiado
+
+- Los paquetes con `--system-node` exigen `nodejs >= 22.19`.
+- Documentación: requisitos de Node y guía de solución de problemas.
+
 ## [0.3.0] - 2026-10-27
 
 ### Añadido

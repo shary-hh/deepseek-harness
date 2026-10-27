@@ -36,9 +36,19 @@ const {
   apiRequest,
 } = require('./core');
 
+const { resolveWorkspace } = require('./workspace');
+const { runAgent } = require('./agent');
+
 const VERSION = pkg.version;
 
 // --- Utilidades ------------------------------------------------------------
+
+// Rango recomendado por la guía de DSH: ^22.19.0 || >=24.2.0.
+// Node 24.0/24.1 tiene un fallo conocido de salida silenciosa.
+function nodeSupported(version = process.versions.node) {
+  const [major, minor] = version.split('.').map(Number);
+  return (major === 22 && minor >= 19) || (major >= 24 && (major > 24 || minor >= 2));
+}
 
 async function readStdin() {
   if (process.stdin.isTTY) return '';
@@ -68,6 +78,7 @@ async function cmdChat(args) {
     stream: Boolean(process.stdout.isTTY),
     json: false,
     timeoutMs: cfg.timeoutMs,
+    workspace: null,
   };
   const words = [];
 
@@ -99,6 +110,9 @@ async function cmdChat(args) {
         opts.json = true;
         opts.stream = false;
         break;
+      case '--workspace':
+        opts.workspace = args[++i] || fail('--workspace requiere un directorio.', 2);
+        break;
       case '--':
         words.push(...args.slice(i + 1));
         i = args.length;
@@ -117,6 +131,35 @@ async function cmdChat(args) {
   const messages = [];
   if (opts.system) messages.push({ role: 'system', content: opts.system });
   messages.push({ role: 'user', content: prompt });
+
+  if (opts.workspace) {
+    const workspace = resolveWorkspace(opts.workspace);
+    const result = await runAgent({
+      cfg,
+      key,
+      model: opts.model,
+      messages,
+      workspace,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      timeoutMs: opts.timeoutMs,
+      onEvent: (event) => {
+        if (event.type === 'tool') {
+          process.stderr.write(`[tool] ${event.name} ${JSON.stringify(event.args)}\n`);
+        } else if (event.type === 'tool_result') {
+          process.stderr.write(
+            `[tool] ${event.ok ? 'ok' : 'error'} ${event.name}: ${event.summary}\n`
+          );
+        }
+      },
+    });
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      process.stdout.write(`${result.content}\n`);
+    }
+    return;
+  }
 
   const body = {
     model: opts.model,
@@ -204,7 +247,7 @@ async function printStream(response) {
 }
 
 async function cmdWeb(args) {
-  const opts = { port: 8787, host: '127.0.0.1', open: false };
+  const opts = { port: 8787, host: '127.0.0.1', open: false, workspace: null };
 
   for (let i = 0; i < args.length; i += 1) {
     switch (args[i]) {
@@ -219,6 +262,9 @@ async function cmdWeb(args) {
         break;
       case '--no-open':
         opts.open = false;
+        break;
+      case '--workspace':
+        opts.workspace = args[++i] || fail('--workspace requiere un directorio.', 2);
         break;
       default:
         fail(`Opción desconocida: ${args[i]}`, 2);
@@ -258,6 +304,13 @@ async function cmdModels(args) {
 async function cmdDoctor(args) {
   const cfg = effectiveConfig();
   const ping = args.includes('--ping');
+
+  const wsIndex = args.indexOf('--workspace');
+  let workspace = null;
+  if (wsIndex !== -1) {
+    workspace = resolveWorkspace(args[wsIndex + 1] || fail('--workspace requiere un directorio.', 2));
+  }
+
   let key = '';
 
   try {
@@ -274,16 +327,28 @@ async function cmdDoctor(args) {
     /* no existe */
   }
 
+  const keySource = process.env.DEEPSEEK_API_KEY
+    ? 'DEEPSEEK_API_KEY'
+    : process.env.DEEPSEEK_API_KEY_FILE
+      ? 'DEEPSEEK_API_KEY_FILE'
+      : 'ninguna';
+  const proxySet = Boolean(
+    process.env.HTTPS_PROXY || process.env.https_proxy ||
+    process.env.HTTP_PROXY || process.env.http_proxy
+  );
+
   process.stdout.write('Entorno de deepseek-harness\n');
   process.stdout.write(`  versión:           ${VERSION}\n`);
-  process.stdout.write(`  node:              ${process.version}\n`);
+  process.stdout.write(`  node:              ${process.version} (${nodeSupported() ? 'soportado' : 'NO soportado'})\n`);
   process.stdout.write(`  plataforma:        ${process.platform}/${process.arch}\n`);
   process.stdout.write(`  URL base:          ${cfg.baseUrl}\n`);
   process.stdout.write(`  modelo:            ${cfg.model}\n`);
   process.stdout.write(`  configuración:     ${file} (permisos ${perms})\n`);
+  process.stdout.write(`  workspace:         ${workspace || 'no configurado (sin herramientas)'}\n`);
   process.stdout.write(
-    `  DEEPSEEK_API_KEY:  ${key ? `definida (${key.length} caracteres, valor oculto)` : 'no definida'}\n`
+    `  DEEPSEEK_API_KEY:  ${key ? `definida (${key.length} caracteres, valor oculto; origen: ${keySource})` : 'no definida'}\n`
   );
+  process.stdout.write(`  proxy:             ${proxySet ? 'definido (valor oculto)' : 'no definido'}\n`);
 
   if (!key) {
     process.stderr.write('\nDefine DEEPSEEK_API_KEY o DEEPSEEK_API_KEY_FILE para usar chat/models.\n');
@@ -393,7 +458,8 @@ Uso:
 Comandos:
   chat [mensaje]        Conversa con la API de DeepSeek
   models                Lista los modelos disponibles
-  doctor [--ping]       Comprueba entorno, clave y conectividad
+  doctor [--ping] [--workspace <dir>]
+                        Comprueba entorno, clave y conectividad
   config [show|path|init|set|unset]
                         Gestiona la configuración (nunca guarda claves)
   web [--port 8787] [--open]
@@ -408,11 +474,13 @@ Opciones de chat:
   --stream / --no-stream
                         Forzar streaming o desactivarlo
   --json                Imprime la respuesta JSON completa
+  --workspace <dir>     Habilita herramientas de solo lectura en ese directorio
 
 Opciones de web:
   --port <n>            Puerto local (por defecto: 8787; 0 = aleatorio)
   --host <host>         Solo loopback (127.0.0.1, ::1, localhost)
   --open                Abre el navegador automáticamente
+  --workspace <dir>     Habilita herramientas de solo lectura en ese directorio
 
 Globales:
   -h, --help            Muestra esta ayuda
@@ -466,9 +534,11 @@ async function main(argv) {
   }
 }
 
-const major = Number(process.versions.node.split('.')[0]);
-if (major < 20) {
-  process.stderr.write(`deepseek-harness requiere Node.js >= 20 (detectado ${process.version}).\n`);
+if (!nodeSupported()) {
+  process.stderr.write(
+    `Node.js ${process.version} no está soportado.\n` +
+    'Usa ^22.19.0 o >=24.2.0 (evita 24.0/24.1 por un fallo conocido de salida silenciosa).\n'
+  );
   process.exit(1);
 }
 

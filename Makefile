@@ -16,7 +16,7 @@ test: ## Ejecuta todas las pruebas locales
 	./tests/run-tests.sh
 
 test-cli: ## Pruebas de CLI y web contra servidores mock
-	node --test tests/cli.test.js tests/web.test.js
+	node --test tests/
 
 lint: ## bash -n + shellcheck + escaneo de secretos
 	@for f in scripts/*.sh scripts/lib/*.sh install.sh uninstall.sh; do bash -n "$$f" || exit 1; done

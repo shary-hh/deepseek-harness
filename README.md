@@ -20,6 +20,23 @@ Genera cuatro formatos desde un mismo payload:
 
 ---
 
+## Requisitos de Node.js
+
+La CLI usa `fetch` nativo y requiere:
+
+```text
+^22.19.0 || >=24.2.0
+```
+
+- Los paquetes `.deb`/`.rpm`/AppImage **incluyen Node 24.22.1**, así que no
+  necesitas instalar nada.
+- Con `--system-node` sí se usa el Node del sistema. En ese caso el binario
+  comprueba la versión al arrancar y falla con un mensaje claro.
+- Se evitan Node 24.0 y 24.1 por un fallo conocido de salida silenciosa
+  reportado en el harness oficial. Node 23 tampoco está en el rango.
+
+---
+
 ## Instalación rápida en Linux Mint 22.3
 
 ### 1. Modo usuario (recomendado si no quieres tocar el sistema)
@@ -135,6 +152,7 @@ export DEEPSEEK_API_KEY="tu-clave"
 deepseek-harness web                 # http://127.0.0.1:8787, token en la URL
 deepseek-harness web --port 9000 --open
 deepseek-harness web --port 0        # puerto aleatorio
+deepseek-harness web --workspace ~/dsh-test --open   # + herramientas de archivos
 ```
 
 - Escucha **solo** en loopback (`127.0.0.1`, `::1`); rechaza `0.0.0.0`.
@@ -148,8 +166,35 @@ deepseek-harness web --port 0        # puerto aleatorio
 - Streaming SSE, selector de modelo, detener respuesta y limpiar conversación.
 - Límite de 256 KB por petición y 4 streams simultáneos.
 
-> `v0.1.0` fue el esqueleto de empaquetado. La CLI funcional llega en `v0.2.0`
-> y la interfaz web en `v0.3.0`.
+### Workspace de solo lectura
+
+El modelo puede inspeccionar un directorio local mediante dos herramientas:
+`workspace_list` y `workspace_read`. Se habilita explícitamente al arrancar:
+
+```bash
+mkdir -p ~/dsh-test
+deepseek-harness web --workspace ~/dsh-test --open
+deepseek-harness chat --workspace ~/dsh-test "lista los archivos y dime qué hay"
+```
+
+Reglas del sandbox:
+
+- Solo rutas **relativas** dentro del workspace; se rechazan `..`, rutas
+  absolutas y symlinks que apunten fuera.
+- Nunca se listan ni leen `.env`, `.npmrc`, `*.pem`, `*.key`, `id_rsa*`,
+  credenciales ni `.git`, `.ssh`, `node_modules`.
+- Límites: 128 KB por archivo, 300 entradas, profundidad 3 y 6 pasos de
+  herramientas por petición.
+- El navegador **no puede elegir** la ruta: solo el flag `--workspace` al
+  arrancar el servidor. Así una web comprometida no puede leer rutas arbitrarias.
+- Con herramientas activas las respuestas no usan streaming token a token;
+  se muestran las acciones y luego la respuesta final.
+
+Usa una carpeta de prueba, no un repositorio de producción ni una carpeta con
+secretos. Si no pasas `--workspace`, el modelo no tiene acceso a archivos.
+
+> `v0.1.0` fue el esqueleto de empaquetado. La CLI funcional llegó en `v0.2.0`,
+> la interfaz web en `v0.3.0` y el workspace de solo lectura en `v0.4.0`.
 
 ---
 
@@ -203,7 +248,7 @@ Detalles de cada formato: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 - **Embebido (por defecto):** el `.deb` incluye Node.js LTS verificado por
   SHA256. No depende de la versión de Node del usuario. Más pesado (~50 MB).
-- **`--system-node`:** el paquete declara `nodejs (>= 20)` / `nodejs >= 20`.
+- **`--system-node`:** el paquete declara `nodejs (>= 22.19)` / `nodejs >= 22.19`.
   Más ligero, pero requiere Node moderno en el sistema.
 
 ---
@@ -386,6 +431,10 @@ vulnerabilidades.
 | `makensis no está instalado` | `sudo apt install nsis`; el ZIP portable se genera igual. |
 | `command not found: deepseek-harness` | Añade `~/.local/bin` al `PATH`. |
 | El AppImage no arranca por FUSE | `APPIMAGE_EXTRACT_AND_RUN=1 ./deepseek-harness-*.AppImage`. |
+| `El puerto 8787 ya está en uso` | `deepseek-harness web --port 0` o elige otro puerto. |
+| `Node.js ... no está soportado` | Usa `^22.19.0` o `>=24.2.0` (evita 24.0/24.1). |
+
+Más casos en [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 | El binario no responde `--version` | Tu payload no implementa `--version`; es solo un aviso. |
 
 ---
