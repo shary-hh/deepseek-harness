@@ -48,7 +48,7 @@ jobs:
       - name: Construir AppImage
         run: ./scripts/build-appimage.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-artifacts
           path: |
@@ -71,7 +71,7 @@ jobs:
             bash -c 'dnf install -y rpm-build tar gzip curl python3 findutils && ./scripts/build-rpm.sh'
           sudo chown -R "$(id -u):$(id -g)" build dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rpm-artifacts
           path: dist/*.rpm
@@ -96,7 +96,7 @@ jobs:
       - name: Construir ZIP + instalador
         run: ./scripts/build-exe.sh --arch "${{ matrix.arch }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.arch }}
           path: |
