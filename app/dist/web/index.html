@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>deepseek-harness</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="name">deepseek-harness</span>
+        <span class="ver" id="ver"></span>
+      </div>
+      <div class="controls">
+        <label class="sr-only" for="model">Modelo</label>
+        <select id="model" class="model"></select>
+        <button type="button" id="clear" class="ghost">Limpiar</button>
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </header>
+
+    <main id="messages" class="messages" aria-live="polite">
+      <div class="empty" id="empty">
+        <h1>¿Qué quieres preguntar?</h1>
+        <p>Todo se ejecuta en tu máquina. La clave de API se queda en el servidor local
+           y el navegador nunca la recibe.</p>
+      </div>
+    </main>
+
+    <footer class="composer">
+      <form id="form" autocomplete="off">
+        <label class="sr-only" for="input">Mensaje</label>
+        <textarea id="input" rows="1" placeholder="Escribe un mensaje… (Enter envía, Shift+Enter salto de línea)" autofocus></textarea>
+        <button type="submit" id="send">Enviar</button>
+        <button type="button" id="stop" class="danger" hidden>Detener</button>
+      </form>
+      <p class="hint" id="hint">Conectando…</p>
+    </footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

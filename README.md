@@ -107,6 +107,7 @@ deepseek-harness models
 deepseek-harness doctor --ping
 deepseek-harness config init          # crea ~/.config/deepseek-harness/config.json (0600)
 deepseek-harness config set model deepseek-reasoner
+deepseek-harness web                   # interfaz gráfica local
 ```
 
 | Opción de `chat` | Efecto |
@@ -127,7 +128,28 @@ Detalles de seguridad:
 - `doctor` muestra solo la longitud de la clave, nunca el valor.
 - HTTP solo se permite en loopback (para las pruebas); el resto exige HTTPS.
 
-> `v0.1.0` fue el esqueleto de empaquetado. La CLI funcional llega en `v0.2.0`.
+### Interfaz web
+
+```bash
+export DEEPSEEK_API_KEY="tu-clave"
+deepseek-harness web                 # http://127.0.0.1:8787, token en la URL
+deepseek-harness web --port 9000 --open
+deepseek-harness web --port 0        # puerto aleatorio
+```
+
+- Escucha **solo** en loopback (`127.0.0.1`, `::1`); rechaza `0.0.0.0`.
+- Genera un token de sesión y lo entrega en la URL inicial; luego usa una
+  cookie `HttpOnly; SameSite=Strict`.
+- Comprueba `Host` (anti DNS-rebinding) y `Origin` (anti CSRF).
+- La clave de API **nunca llega al navegador**: el servidor local hace las
+  llamadas a DeepSeek.
+- CSP estricta (`script-src 'self'`, `frame-ancestors 'none'`), sin scripts
+  en línea.
+- Streaming SSE, selector de modelo, detener respuesta y limpiar conversación.
+- Límite de 256 KB por petición y 4 streams simultáneos.
+
+> `v0.1.0` fue el esqueleto de empaquetado. La CLI funcional llega en `v0.2.0`
+> y la interfaz web en `v0.3.0`.
 
 ---
 

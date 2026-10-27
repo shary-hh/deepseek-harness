@@ -26,6 +26,10 @@ Con \fB\-\-ping\fR consulta la API sin mostrar el secreto.
 .TP
 .B config \fR[\fBshow\fR|\fBpath\fR|\fBinit\fR|\fBset\fR|\fBunset\fR]
 Gestiona la configuración local. Las claves de API nunca se guardan ahí.
+.TP
+.B web \fR[\fB\-\-port\fR \fIN\fR] [\fB\-\-host\fR \fIHOST\fR] [\fB\-\-open\fR]
+Levanta la interfaz gráfica local en loopback. Genera un token de sesión y
+sirve la UI solo tras autenticarlo. La clave de API permanece en el servidor.
 .SH FILES
 .TP
 .I ~/.config/deepseek-harness/config.json

@@ -123,6 +123,7 @@ deepseek-harness --help
 deepseek-harness doctor --ping
 deepseek-harness chat "Explica qué es Linux Mint"
 deepseek-harness models
+deepseek-harness web --open
 ```
 
 Recomendaciones:

@@ -13,208 +13,32 @@
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const pkg = require(path.join(__dirname, '..', 'package.json'));
 
+const {
+  DEFAULT_BASE_URL,
+  DEFAULT_MODEL,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_TOKENS,
+  CONFIG_FIELDS,
+  SECRET_FIELD,
+  CliError,
+  configFile,
+  readConfig,
+  writeConfig,
+  effectiveConfig,
+  normalizeBaseUrl,
+  readApiKey,
+  redact,
+  fail,
+  apiRequest,
+} = require('./core');
+
 const VERSION = pkg.version;
-const DEFAULT_BASE_URL = 'https://api.deepseek.com';
-const DEFAULT_MODEL = 'deepseek-chat';
-const DEFAULT_TIMEOUT_MS = 120000;
-const DEFAULT_MAX_TOKENS = 4096;
-
-const SECRET_FIELD = /^(api[_-]?key|apikey|key|token|access[_-]?token|secret|client[_-]?secret|password|credentials)$/i;
-
-const CONFIG_FIELDS = new Set([
-  'baseUrl',
-  'model',
-  'systemPrompt',
-  'temperature',
-  'maxTokens',
-  'timeoutMs',
-]);
-
-class CliError extends Error {
-  constructor(message, code = 1) {
-    super(message);
-    this.name = 'CliError';
-    this.code = code;
-  }
-}
-
-// --- Configuración ---------------------------------------------------------
-
-function configHome() {
-  return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-}
-
-function configDir() {
-  return path.join(configHome(), 'deepseek-harness');
-}
-
-function configFile() {
-  return path.join(configDir(), 'config.json');
-}
-
-function readConfig() {
-  const file = configFile();
-  let raw;
-  try {
-    raw = fs.readFileSync(file, 'utf8');
-  } catch (err) {
-    if (err.code === 'ENOENT') return {};
-    throw new CliError(`No se pudo leer la configuración (${file}): ${err.message}`);
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new CliError(`Configuración inválida en ${file}: el JSON está malformado.`);
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new CliError(`Configuración inválida en ${file}: se esperaba un objeto.`);
-  }
-
-  // Nunca aceptamos secretos dentro de la configuración.
-  for (const key of Object.keys(parsed)) {
-    if (SECRET_FIELD.test(key)) {
-      throw new CliError(
-        `La configuración contiene el campo sospechoso "${key}". ` +
-        'Las claves de API deben ir en DEEPSEEK_API_KEY, no en el archivo.'
-      );
-    }
-  }
-
-  return parsed;
-}
-
-function writeConfig(cfg) {
-  const dir = configDir();
-  const file = configFile();
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    fs.chmodSync(dir, 0o700);
-  } catch {
-    /* sistemas sin permisos POSIX */
-  }
-
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, file);
-  try {
-    fs.chmodSync(file, 0o600);
-  } catch {
-    /* ignore */
-  }
-}
-
-function effectiveConfig() {
-  const cfg = readConfig();
-  return {
-    baseUrl: normalizeBaseUrl(process.env.DEEPSEEK_BASE_URL || cfg.baseUrl || DEFAULT_BASE_URL),
-    model: process.env.DEEPSEEK_MODEL || cfg.model || DEFAULT_MODEL,
-    systemPrompt: typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : '',
-    temperature: cfg.temperature === undefined ? 1 : Number(cfg.temperature),
-    maxTokens: cfg.maxTokens === undefined ? DEFAULT_MAX_TOKENS : Number(cfg.maxTokens),
-    timeoutMs: cfg.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : Number(cfg.timeoutMs),
-  };
-}
-
-function normalizeBaseUrl(raw) {
-  let url;
-  try {
-    url = new URL(String(raw));
-  } catch {
-    throw new CliError(`URL base inválida: ${raw}`);
-  }
-
-  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(url.hostname);
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-    throw new CliError(
-      'La URL base debe usar HTTPS. Solo se permite HTTP en loopback (127.0.0.1/localhost) para pruebas.'
-    );
-  }
-
-  url.hash = '';
-  url.search = '';
-  return url.toString().replace(/\/$/, '');
-}
-
-// --- Credenciales ----------------------------------------------------------
-
-function readApiKey() {
-  let key = (process.env.DEEPSEEK_API_KEY || '').trim();
-
-  if (!key) {
-    const file = process.env.DEEPSEEK_API_KEY_FILE;
-    if (file) {
-      try {
-        key = fs.readFileSync(file, 'utf8').trim();
-      } catch (err) {
-        throw new CliError(`No se pudo leer DEEPSEEK_API_KEY_FILE (${file}): ${err.message}`, 3);
-      }
-      warnIfLoosePermissions(file);
-    }
-  }
-
-  if (!key) {
-    throw new CliError(
-      'Falta la clave de API. Define DEEPSEEK_API_KEY en tu entorno\n' +
-      'o apunta DEEPSEEK_API_KEY_FILE a un archivo con la clave (permisos 0600).',
-      3
-    );
-  }
-
-  return key;
-}
-
-function warnIfLoosePermissions(file) {
-  try {
-    const mode = fs.statSync(file).mode & 0o777;
-    if (mode & 0o077) {
-      process.stderr.write(
-        `aviso: ${file} es accesible por otros usuarios (permisos ${mode.toString(8)}); ` +
-        'usa chmod 600.\n'
-      );
-    }
-  } catch {
-    /* ignore */
-  }
-}
 
 // --- Utilidades ------------------------------------------------------------
-
-function redact(text) {
-  return String(text)
-    .replace(/(sk-|Bearer\s+)[A-Za-z0-9._-]+/gi, '$1***')
-    .replace(/[A-Za-z0-9_-]{32,}/g, '***')
-    .slice(0, 800);
-}
-
-function fail(message, code = 1) {
-  throw new CliError(message, code);
-}
-
-function describeHttpError(status, body) {
-  const known = {
-    400: 'Solicitud inválida (HTTP 400). Revisa el modelo y los parámetros.',
-    401: 'Clave de API inválida o ausente (HTTP 401). Revisa DEEPSEEK_API_KEY.',
-    402: 'Saldo insuficiente en tu cuenta de DeepSeek (HTTP 402).',
-    403: 'Acceso denegado (HTTP 403).',
-    404: 'Recurso no encontrado (HTTP 404). Revisa --model o la URL base.',
-    422: 'Parámetros no válidos (HTTP 422).',
-    429: 'Límite de peticiones alcanzado (HTTP 429). Reintenta más tarde.',
-    500: 'Error interno de DeepSeek (HTTP 500).',
-    502: 'Puerta de enlace incorrecta (HTTP 502).',
-    503: 'Servicio de DeepSeek no disponible (HTTP 503).',
-  };
-  const head = known[status] || `Error HTTP ${status}.`;
-  const detail = body ? `\n${redact(body)}` : '';
-  return new CliError(`${head}${detail}`);
-}
 
 async function readStdin() {
   if (process.stdin.isTTY) return '';
@@ -230,49 +54,6 @@ function parseNumber(value, name, { min, max, integer = false }) {
   if (min !== undefined && num < min) fail(`--${name} debe ser >= ${min}.`, 2);
   if (max !== undefined && num > max) fail(`--${name} debe ser <= ${max}.`, 2);
   return num;
-}
-
-// --- HTTP ------------------------------------------------------------------
-
-async function request(cfg, key, endpoint, { method = 'GET', body, timeoutMs } = {}) {
-  const url = `${cfg.baseUrl}${endpoint}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs ?? cfg.timeoutMs);
-
-  const headers = {
-    Authorization: `Bearer ${key}`,
-    Accept: body && body.stream ? 'text/event-stream' : 'application/json',
-  };
-  if (body) headers['Content-Type'] = 'application/json';
-
-  let response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    if (err.name === 'AbortError') {
-      fail('Tiempo de espera agotado al contactar con DeepSeek.');
-    }
-    fail(`No se pudo conectar con ${cfg.baseUrl}: ${redact(err.message)}`);
-  }
-
-  if (!response.ok) {
-    clearTimeout(timer);
-    let text = '';
-    try {
-      text = await response.text();
-    } catch {
-      /* ignore */
-    }
-    throw describeHttpError(response.status, text);
-  }
-
-  return { response, timer };
 }
 
 // --- Comandos --------------------------------------------------------------
@@ -345,7 +126,7 @@ async function cmdChat(args) {
     max_tokens: opts.maxTokens,
   };
 
-  const { response, timer } = await request(cfg, key, '/chat/completions', {
+  const { response, timer } = await apiRequest(cfg, key, '/chat/completions', {
     method: 'POST',
     body,
     timeoutMs: opts.timeoutMs,
@@ -422,11 +203,37 @@ async function printStream(response) {
   if (wrote) process.stdout.write('\n');
 }
 
+async function cmdWeb(args) {
+  const opts = { port: 8787, host: '127.0.0.1', open: false };
+
+  for (let i = 0; i < args.length; i += 1) {
+    switch (args[i]) {
+      case '--port':
+        opts.port = parseNumber(args[++i], 'port', { min: 0, max: 65535, integer: true });
+        break;
+      case '--host':
+        opts.host = args[++i] || fail('--host requiere un valor.', 2);
+        break;
+      case '--open':
+        opts.open = true;
+        break;
+      case '--no-open':
+        opts.open = false;
+        break;
+      default:
+        fail(`Opción desconocida: ${args[i]}`, 2);
+    }
+  }
+
+  const { runWeb } = require('./web-server');
+  await runWeb(opts);
+}
+
 async function cmdModels(args) {
   const cfg = effectiveConfig();
   const json = args.includes('--json');
   const key = readApiKey();
-  const { response, timer } = await request(cfg, key, '/models');
+  const { response, timer } = await apiRequest(cfg, key, '/models');
   try {
     const data = await response.json();
     if (json) {
@@ -486,7 +293,7 @@ async function cmdDoctor(args) {
 
   if (ping) {
     try {
-      const { response, timer } = await request(cfg, key, '/models');
+      const { response, timer } = await apiRequest(cfg, key, '/models');
       try {
         const data = await response.json();
         const count = Array.isArray(data.data) ? data.data.length : 0;
@@ -589,6 +396,8 @@ Comandos:
   doctor [--ping]       Comprueba entorno, clave y conectividad
   config [show|path|init|set|unset]
                         Gestiona la configuración (nunca guarda claves)
+  web [--port 8787] [--open]
+                        Interfaz gráfica local (solo loopback)
 
 Opciones de chat:
   --model <id>          Modelo (por defecto: ${DEFAULT_MODEL})
@@ -599,6 +408,11 @@ Opciones de chat:
   --stream / --no-stream
                         Forzar streaming o desactivarlo
   --json                Imprime la respuesta JSON completa
+
+Opciones de web:
+  --port <n>            Puerto local (por defecto: 8787; 0 = aleatorio)
+  --host <host>         Solo loopback (127.0.0.1, ::1, localhost)
+  --open                Abre el navegador automáticamente
 
 Globales:
   -h, --help            Muestra esta ayuda
@@ -643,6 +457,9 @@ async function main(argv) {
       break;
     case 'config':
       cmdConfig(rest);
+      break;
+    case 'web':
+      await cmdWeb(rest);
       break;
     default:
       fail(`Comando desconocido: ${command}. Usa --help.`, 2);

@@ -1,7 +1,7 @@
 # deepseek-harness (aplicación)
 
-CLI para la API de DeepSeek, sin dependencias externas. Usa `fetch` nativo de
-Node.js >= 20.
+CLI y web local para la API de DeepSeek, sin dependencias externas. Usa
+`fetch` nativo de Node.js >= 20.
 
 ## Uso
 
@@ -15,7 +15,14 @@ node app/dist/cli.js chat --model deepseek-reasoner "razona esto"
 node app/dist/cli.js models
 node app/dist/cli.js doctor --ping
 node app/dist/cli.js config init
+node app/dist/cli.js web --open
 ```
+
+## Interfaz web
+
+`deepseek-harness web` escucha en `127.0.0.1:8787` (configurable con
+`--port`), exige un token de sesión y nunca envía la clave al navegador.
+`--port 0` elige un puerto libre; `--open` abre el navegador.
 
 ## Seguridad
 

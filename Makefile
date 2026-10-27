@@ -15,11 +15,12 @@ help: ## Muestra esta ayuda
 test: ## Ejecuta todas las pruebas locales
 	./tests/run-tests.sh
 
-test-cli: ## Pruebas de la CLI contra un servidor mock
-	node --test tests/cli.test.js
+test-cli: ## Pruebas de CLI y web contra servidores mock
+	node --test tests/cli.test.js tests/web.test.js
 
 lint: ## bash -n + shellcheck + escaneo de secretos
 	@for f in scripts/*.sh scripts/lib/*.sh install.sh uninstall.sh; do bash -n "$$f" || exit 1; done
+	@for f in app/dist/*.js app/dist/web/*.js; do node --check "$$f" || exit 1; done
 	@if command -v shellcheck >/dev/null; then shellcheck -x -S warning scripts/*.sh scripts/lib/*.sh install.sh uninstall.sh; fi
 	@./scripts/scan-secrets.sh
 

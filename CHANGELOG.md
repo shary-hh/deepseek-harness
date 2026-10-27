@@ -4,6 +4,22 @@ Todas las cambios relevantes se documentan aquí. Formato basado en
 [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y
 [SemVer](https://semver.org/lang/es/).
 
+## [0.3.0] - 2026-10-27
+
+### Añadido
+
+- `deepseek-harness web`: interfaz gráfica local servida en loopback.
+  - Token de sesión, cookie `HttpOnly; SameSite=Strict` y comprobación de
+    `Origin`/`Host`.
+  - La clave de API nunca se envía al navegador.
+  - Streaming SSE, selector de modelo, detener y limpiar.
+  - CSP estricta y límites de cuerpo (256 KB) y concurrencia (4 streams).
+- 7 pruebas de la interfaz web contra un backend mock.
+
+### Cambiado
+
+- Lógica de API/config extraída a `core.js`, compartida por CLI y web.
+
 ## [0.2.0] - 2026-10-27
 
 ### Añadido
