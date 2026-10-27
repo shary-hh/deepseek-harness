@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Hook pre-commit: evita commits con secretos o scripts rotos.
+set -Eeuo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "pre-commit: bash -n"
+for f in scripts/*.sh scripts/lib/*.sh install.sh uninstall.sh; do
+  bash -n "$f" || { echo "sintaxis inválida: $f"; exit 1; }
+done
+
+echo "pre-commit: scan-secrets"
+./scripts/scan-secrets.sh

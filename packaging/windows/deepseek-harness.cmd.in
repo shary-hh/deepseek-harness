@@ -1,0 +1,4 @@
+@echo off
+rem deepseek-harness - lanzador portable para Windows (generado)
+setlocal
+"%~dp0node.exe" "%~dp0app/__ENTRY__" %*

@@ -1,0 +1,11 @@
+Package: @APP_NAME@
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: @SECTION@
+Priority: optional
+Homepage: @HOMEPAGE@
+Description: @SHORT@
+ @LONG@

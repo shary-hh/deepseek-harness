@@ -1,0 +1,31 @@
+.TH DEEPSEEK-HARNESS 1 "2026" "deepseek-harness" "User Commands"
+.SH NAME
+deepseek-harness \- CLI harness for DeepSeek models
+.SH SYNOPSIS
+.B deepseek-harness
+[\fIOPTIONS\fR] [\fICOMMAND\fR]
+.SH DESCRIPTION
+.B deepseek-harness
+is a command line harness that wraps DeepSeek models with a local,
+reproducible workflow.
+.SH OPTIONS
+.TP
+.B \-\-help
+Show help and exit.
+.TP
+.B \-\-version
+Show the version and exit.
+.SH FILES
+.TP
+.I ~/.config/deepseek-harness/
+User configuration directory (created with mode 0700 on first use).
+.SH ENVIRONMENT
+.TP
+.B DEEPSEEK_API_KEY
+API key used to authenticate against the DeepSeek API. Prefer reading it
+from your shell's secret manager; never commit it to version control.
+.TP
+.B DH_NODE_BIN
+Path to the Node.js binary when using the system-node variant.
+.SH SEE ALSO
+The project homepage for full documentation.

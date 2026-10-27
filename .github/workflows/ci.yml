@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    name: Lint y pruebas
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Instalar herramientas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck rpm
+
+      - name: Activar hooks
+        run: make install-hooks
+
+      - name: Lint
+        run: make lint
+
+      - name: Pruebas
+        run: make test
+
+  package:
+    name: Construir artefactos
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Herramientas de empaquetado
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm nsis zip
+          ./scripts/bootstrap-tools.sh --all --yes
+
+      - name: .deb
+        run: ./scripts/build-deb.sh
+
+      - name: .rpm
+        run: ./scripts/build-rpm.sh
+
+      - name: AppImage
+        run: ./scripts/build-appimage.sh
+
+      - name: Windows
+        run: ./scripts/build-exe.sh
+
+      - name: Checksums
+        run: ./scripts/generate-checksums.sh
+
+      - name: Subir artefactos de CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-artifacts
+          path: dist/*
+          retention-days: 7

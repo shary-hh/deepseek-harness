@@ -1,0 +1,17 @@
+# Herramientas externas verificadas por SHA256.
+#
+# Formato: <sha256>  <nombre-archivo>
+# Si una herramienta no está aquí, los scripts se niegan a descargarla
+# (escape: DH_ALLOW_UNVERIFIED=1).
+#
+# appimagetool "continuous" se reconstruye de vez en cuando: si el build
+# falla por checksum, actualiza el hash de forma consciente y revisa el
+# diff del binario antes de aceptarlo.
+
+# appimagetool (AppImage/appimagetool, release continuous, 2026-10-04)
+95cbe7cce9717fce90c484e34052ee7c7f1d7635b33c12525b4776826a7d29b6  appimagetool-x86_64.AppImage
+a595ea34cd6136c7f595e9dcbb16f3e9725d7610efb9e43b38c3c6e86cafc270  appimagetool-aarch64.AppImage
+
+# type2-runtime (AppImage/type2-runtime, release continuous)
+617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46  runtime-x86_64
+9a72a744d221576c9347ec074243acc5c3c7568896b12714e0e82e9f0bf47900  runtime-aarch64

@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-version:
+    name: El tag coincide con VERSION
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar versión
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "El tag $GITHUB_REF_NAME no coincide con VERSION=$version" >&2
+            exit 1
+          fi
+
+  linux:
+    name: .deb + AppImage
+    needs: verify-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Herramientas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm nsis zip
+          ./scripts/bootstrap-tools.sh --all --yes
+
+      - name: Construir .deb
+        run: ./scripts/build-deb.sh --arch amd64
+
+      - name: Construir AppImage
+        run: ./scripts/build-appimage.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+          if-no-files-found: error
+
+  rpm:
+    name: .rpm (Fedora)
+    needs: verify-version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir dentro del contenedor Fedora
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" -w /src \
+            fedora:41 \
+            bash -c 'dnf install -y rpm-build tar gzip curl python3 findutils && ./scripts/build-rpm.sh'
+          sudo chown -R "$(id -u):$(id -g)" build dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-artifacts
+          path: dist/*.rpm
+          if-no-files-found: error
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    needs: verify-version
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Herramientas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nsis zip
+
+      - name: Construir ZIP + instalador
+        run: ./scripts/build-exe.sh --arch "${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            dist/*.zip
+            dist/*setup.exe
+          if-no-files-found: error
+
+  release:
+    name: Publicar release
+    needs: [linux, rpm, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generar SHA256SUMS
+        run: ./scripts/generate-checksums.sh dist
+
+      - name: Firmar SHA256SUMS (opcional)
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "::warning::Sin GPG_PRIVATE_KEY: el release se publica sin firma."
+            exit 0
+          fi
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          DH_GPG_KEY="$GPG_FINGERPRINT" \
+          DH_GPG_PASSPHRASE="$GPG_PASSPHRASE" \
+            ./scripts/sign.sh --file dist/SHA256SUMS
+
+      - name: Crear release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

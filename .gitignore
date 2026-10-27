@@ -1,0 +1,45 @@
+# Artefactos de build (solo en la raíz)
+/dist/
+/build/
+/.cache/
+
+# Payload local de la aplicación (el repo incluye un esqueleto en app/)
+# Dependencias
+node_modules/
+
+# Binarios empaquetados
+*.deb
+*.rpm
+*.AppImage
+*.exe
+*.msi
+*.zip
+*.tar.xz
+
+# Checksums y firmas generadas
+SHA256SUMS
+SHA256SUMS.asc
+
+# Secretos: nunca deben entrar al repo
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+.npmrc
+.netrc
+.git-credentials
+id_rsa*
+id_ed25519*
+
+# Entornos y editores
+.venv/
+__pycache__/
+.DS_Store
+*.swp
+.idea/
+.vscode/

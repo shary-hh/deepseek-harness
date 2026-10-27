@@ -1,0 +1,13 @@
+{
+  "name": "deepseek-harness",
+  "version": "0.1.0",
+  "description": "Esqueleto de CLI para el harness de DeepSeek (sustitúyelo por tu app)",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "bin": {
+    "deepseek-harness": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

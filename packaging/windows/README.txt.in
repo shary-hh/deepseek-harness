@@ -1,0 +1,27 @@
+DeepSeek Harness @VERSION@ (Windows @ARCH@)
+================================================
+
+Este paquete es portable: no requiere instalación ni permisos de administrador.
+
+Uso
+---
+1. Descomprime el ZIP en la carpeta que quieras.
+2. Abre una consola (cmd o PowerShell) en esa carpeta.
+3. Ejecuta:
+
+     deepseek-harness.cmd --help
+
+Contenido
+---------
+  deepseek-harness.cmd   lanzador
+  node.exe               runtime Node.js @NODE_VERSION@ (verificado)
+  app\                   aplicación
+  LICENSE                licencia
+
+Seguridad
+---------
+* Este paquete NO incluye claves de API ni configuración personal.
+* Configura DEEPSEEK_API_KEY en tu entorno o en un gestor de secretos.
+* Verifica el SHA256 del ZIP contra SHA256SUMS del release.
+
+Más información: @HOMEPAGE@
